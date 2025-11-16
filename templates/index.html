@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密货币价格预测系统</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid #4a9eff;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-title {
+            font-size: 14px;
+            color: #a0a0a0;
+            margin-bottom: 10px;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4a9eff;
+        }
+        
+        .prediction-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .prediction-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .coin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .coin-name {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .coin-price {
+            font-size: 20px;
+            color: #4a9eff;
+        }
+        
+        .signal-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .signal-box {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .signal-time {
+            font-size: 14px;
+            color: #a0a0a0;
+            margin-bottom: 10px;
+        }
+        
+        .signal-indicator {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .signal-up {
+            background: linear-gradient(135deg, #00ff00, #00cc00);
+            color: #000;
+        }
+        
+        .signal-down {
+            background: linear-gradient(135deg, #ff0000, #cc0000);
+            color: #fff;
+        }
+        
+        .signal-neutral {
+            background: linear-gradient(135deg, #666666, #444444);
+            color: #fff;
+        }
+        
+        .confidence {
+            font-size: 12px;
+            color: #a0a0a0;
+        }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            height: 400px;
+        }
+        
+        .history-table {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        th {
+            background: rgba(0, 0, 0, 0.3);
+            font-weight: bold;
+            color: #4a9eff;
+        }
+        
+        .win {
+            color: #00ff00;
+        }
+        
+        .loss {
+            color: #ff0000;
+        }
+        
+        .pending {
+            color: #ffaa00;
+        }
+        
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(74, 158, 255, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(74, 158, 255, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(74, 158, 255, 0);
+            }
+        }
+        
+        .live-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #00ff00;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 加密货币智能预测系统</h1>
+        <p style="margin-top: 10px; color: #a0a0a0;">
+            <span class="live-indicator"></span>
+            实时预测 BTC/ETH 10分钟和30分钟价格走势
+        </p>
+    </div>
+
+    <div class="container">
+        <!-- 统计信息 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">总预测次数</div>
+                <div class="stat-value" id="total-predictions">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">BTC 10分钟胜率</div>
+                <div class="stat-value" id="btc-winrate-10m">0%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">BTC 30分钟胜率</div>
+                <div class="stat-value" id="btc-winrate-30m">0%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">ETH 10分钟胜率</div>
+                <div class="stat-value" id="eth-winrate-10m">0%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">ETH 30分钟胜率</div>
+                <div class="stat-value" id="eth-winrate-30m">0%</div>
+            </div>
+        </div>
+
+        <!-- 预测信号 -->
+        <div class="prediction-container">
+            <!-- BTC预测卡片 -->
+            <div class="prediction-card">
+                <div class="coin-header">
+                    <span class="coin-name">BTC/USDT</span>
+                    <span class="coin-price" id="btc-price">$0.00</span>
+                </div>
+                
+                <div class="signal-grid">
+                    <div class="signal-box">
+                        <div class="signal-time">10分钟预测</div>
+                        <div class="signal-indicator signal-neutral" id="btc-signal-10m">
+                            等待信号
+                        </div>
+                        <div class="confidence" id="btc-confidence-10m">置信度: 0%</div>
+                    </div>
+                    
+                    <div class="signal-box">
+                        <div class="signal-time">30分钟预测</div>
+                        <div class="signal-indicator signal-neutral" id="btc-signal-30m">
+                            等待信号
+                        </div>
+                        <div class="confidence" id="btc-confidence-30m">置信度: 0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ETH预测卡片 -->
+            <div class="prediction-card">
+                <div class="coin-header">
+                    <span class="coin-name">ETH/USDT</span>
+                    <span class="coin-price" id="eth-price">$0.00</span>
+                </div>
+                
+                <div class="signal-grid">
+                    <div class="signal-box">
+                        <div class="signal-time">10分钟预测</div>
+                        <div class="signal-indicator signal-neutral" id="eth-signal-10m">
+                            等待信号
+                        </div>
+                        <div class="confidence" id="eth-confidence-10m">置信度: 0%</div>
+                    </div>
+                    
+                    <div class="signal-box">
+                        <div class="signal-time">30分钟预测</div>
+                        <div class="signal-indicator signal-neutral" id="eth-signal-30m">
+                            等待信号
+                        </div>
+                        <div class="confidence" id="eth-confidence-30m">置信度: 0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 价格走势图表 -->
+        <div class="chart-container">
+            <canvas id="priceChart"></canvas>
+        </div>
+
+        <!-- 预测历史记录 -->
+        <div class="history-table">
+            <h3 style="margin-bottom: 20px;">📊 预测历史记录</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>币种</th>
+                        <th>开单价格</th>
+                        <th>10分钟预测</th>
+                        <th>10分钟结果</th>
+                        <th>30分钟预测</th>
+                        <th>30分钟结果</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody id="history-tbody">
+                    <!-- 动态生成 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket连接
+        const socket = io();
+        
+        // 图表初始化
+        const ctx = document.getElementById('priceChart').getContext('2d');
+        const priceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'BTC/USDT',
+                        data: [],
+                        borderColor: '#ffa500',
+                        backgroundColor: 'rgba(255, 165, 0, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'ETH/USDT',
+                        data: [],
+                        borderColor: '#627eea',
+                        backgroundColor: 'rgba(98, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#ffffff'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#a0a0a0'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            color: '#a0a0a0'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 更新预测信号
+        function updatePrediction(data) {
+            const symbol = data.symbol === 'BTCUSDT' ? 'btc' : 'eth';
+            
+            // 更新价格
+            $(`#${symbol}-price`).text(`$${data.current_price.toFixed(2)}`);
+            
+            // 更新10分钟信号
+            const signal10m = data.predictions['10m'];
+            const elem10m = $(`#${symbol}-signal-10m`);
+            elem10m.removeClass('signal-up signal-down signal-neutral');
+            
+            if (signal10m.direction === 'UP') {
+                elem10m.addClass('signal-up').html('📈 B10');
+            } else if (signal10m.direction === 'DOWN') {
+                elem10m.addClass('signal-down').html('📉 S10');
+            } else {
+                elem10m.addClass('signal-neutral').html('等待信号');
+            }
+            
+            const confidence10m = Math.max(signal10m.up_probability, signal10m.down_probability) * 100;
+            $(`#${symbol}-confidence-10m`).text(`置信度: ${confidence10m.toFixed(1)}%`);
+            
+            // 更新30分钟信号
+            const signal30m = data.predictions['30m'];
+            const elem30m = $(`#${symbol}-signal-30m`);
+            elem30m.removeClass('signal-up signal-down signal-neutral');
+            
+            if (signal30m.direction === 'UP') {
+                elem30m.addClass('signal-up').html('📈 B30');
+            } else if (signal30m.direction === 'DOWN') {
+                elem30m.addClass('signal-down').html('📉 S30');
+            } else {
+                elem30m.addClass('signal-neutral').html('等待信号');
+            }
+            
+            const confidence30m = Math.max(signal30m.up_probability, signal30m.down_probability) * 100;
+            $(`#${symbol}-confidence-30m`).text(`置信度: ${confidence30m.toFixed(1)}%`);
+            
+            // 更新图表
+            updateChart(data);
+        }
+        
+        // 更新图表
+        function updateChart(data) {
+            const now = new Date().toLocaleTimeString();
+            
+            if (priceChart.data.labels.length > 50) {
+                priceChart.data.labels.shift();
+                priceChart.data.datasets[0].data.shift();
+                priceChart.data.datasets[1].data.shift();
+            }
+            
+            priceChart.data.labels.push(now);
+            
+            if (data.symbol === 'BTCUSDT') {
+                priceChart.data.datasets[0].data.push(data.current_price);
+            } else {
+                priceChart.data.datasets[1].data.push(data.current_price);
+            }
+            
+            priceChart.update();
+        }
+        
+        // 更新统计信息
+        function updateStats() {
+            $.get('/api/stats', function(data) {
+                $('#total-predictions').text(data.total_predictions);
+                $('#btc-winrate-10m').text(data.win_rate_10m.BTC.toFixed(1) + '%');
+                $('#btc-winrate-30m').text(data.win_rate_30m.BTC.toFixed(1) + '%');
+                $('#eth-winrate-10m').text(data.win_rate_10m.ETH.toFixed(1) + '%');
+                $('#eth-winrate-30m').text(data.win_rate_30m.ETH.toFixed(1) + '%');
+                
+                // 更新历史记录
+                updateHistory(data.predictions_history);
+            });
+        }
+        
+        // 更新历史记录表格
+        function updateHistory(history) {
+            const tbody = $('#history-tbody');
+            tbody.empty();
+            
+            history.slice(-20).reverse().forEach(pred => {
+                const row = $('<tr>');
+                
+                row.append(`<td>${new Date(pred.current_time).toLocaleString()}</td>`);
+                row.append(`<td>${pred.symbol}</td>`);
+                row.append(`<td>$${pred.current_price.toFixed(2)}</td>`);
+                
+                // 10分钟预测
+                const dir10m = pred.predictions['10m'].direction;
+                row.append(`<td class="${dir10m === 'UP' ? 'win' : 'loss'}">${dir10m}</td>`);
+                
+                // 10分钟结果
+                if (pred.verified_10m) {
+                    row.append(`<td class="${pred.result_10m ? 'win' : 'loss'}">
+                        ${pred.result_10m ? '✅' : '❌'}
+                    </td>`);
+                } else {
+                    row.append(`<td class="pending">⏳</td>`);
+                }
+                
+                // 30分钟预测
+                const dir30m = pred.predictions['30m'].direction;
+                row.append(`<td class="${dir30m === 'UP' ? 'win' : 'loss'}">${dir30m}</td>`);
+                
+                // 30分钟结果
+                if (pred.verified_30m) {
+                    row.append(`<td class="${pred.result_30m ? 'win' : 'loss'}">
+                        ${pred.result_30m ? '✅' : '❌'}
+                    </td>`);
+                } else {
+                    row.append(`<td class="pending">⏳</td>`);
+                }
+                
+                // 状态
+                if (pred.verified_30m) {
+                    row.append(`<td>已完成</td>`);
+                } else if (pred.verified_10m) {
+                    row.append(`<td>进行中</td>`);
+                } else {
+                    row.append(`<td>等待中</td>`);
+                }
+                
+                tbody.append(row);
+            });
+        }
+        
+        // WebSocket事件监听
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+        
+        socket.on('prediction_update', function(data) {
+            updatePrediction(data);
+        });
+        
+        // 定期请求预测
+        setInterval(function() {
+            socket.emit('request_prediction', {symbol: 'BTCUSDT'});
+            socket.emit('request_prediction', {symbol: 'ETHUSDT'});
+            updateStats();
+        }, 5000);
+        
+        // 初始化
+        $(document).ready(function() {
+            updateStats();
+        });
+    </script>
+</body>
+</html>
