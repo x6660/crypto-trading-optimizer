@@ -1,5 +1,5 @@
-import asyncio
 import json
+import time
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -37,30 +37,36 @@ class TradingDataCollector:
     def start_websocket(self):
         """启动WebSocket连接获取实时数据"""
         def on_message_btc(ws, message):
-            data = json.loads(message)
-            kline = data['k']
-            self.btc_data.append({
-                'time': datetime.fromtimestamp(kline['t']/1000),
-                'open': float(kline['o']),
-                'high': float(kline['h']),
-                'low': float(kline['l']),
-                'close': float(kline['c']),
-                'volume': float(kline['v'])
-            })
-            self.calculate_indicators('BTCUSDT')
-            
+            try:
+                data = json.loads(message)
+                kline = data['k']
+                self.btc_data.append({
+                    'time': datetime.fromtimestamp(kline['t']/1000),
+                    'open': float(kline['o']),
+                    'high': float(kline['h']),
+                    'low': float(kline['l']),
+                    'close': float(kline['c']),
+                    'volume': float(kline['v'])
+                })
+                self.calculate_indicators('BTCUSDT')
+            except Exception as e:
+                print(f"BTC WebSocket message error: {e}")
+
         def on_message_eth(ws, message):
-            data = json.loads(message)
-            kline = data['k']
-            self.eth_data.append({
-                'time': datetime.fromtimestamp(kline['t']/1000),
-                'open': float(kline['o']),
-                'high': float(kline['h']),
-                'low': float(kline['l']),
-                'close': float(kline['c']),
-                'volume': float(kline['v'])
-            })
-            self.calculate_indicators('ETHUSDT')
+            try:
+                data = json.loads(message)
+                kline = data['k']
+                self.eth_data.append({
+                    'time': datetime.fromtimestamp(kline['t']/1000),
+                    'open': float(kline['o']),
+                    'high': float(kline['h']),
+                    'low': float(kline['l']),
+                    'close': float(kline['c']),
+                    'volume': float(kline['v'])
+                })
+                self.calculate_indicators('ETHUSDT')
+            except Exception as e:
+                print(f"ETH WebSocket message error: {e}")
             
         # BTC WebSocket
         self.ws_btc = websocket.WebSocketApp(
@@ -80,24 +86,29 @@ class TradingDataCollector:
         
     def fetch_historical_data(self, symbol, interval='1m', limit=500):
         """获取历史K线数据"""
-        url = f"https://api.binance.com/api/v3/klines"
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'limit': limit
-        }
-        response = requests.get(url, params=params)
-        data = response.json()
-        
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close',
-                                         'volume', 'close_time', 'quote_volume',
-                                         'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore'])
-        
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
-            
-        return df
+        try:
+            url = f"https://api.binance.com/api/v3/klines"
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': limit
+            }
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close',
+                                             'volume', 'close_time', 'quote_volume',
+                                             'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore'])
+
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df[col] = df[col].astype(float)
+
+            return df
+        except Exception as e:
+            print(f"Error fetching historical data for {symbol}: {e}")
+            return pd.DataFrame()
     
     def calculate_indicators(self, symbol):
         """计算全部技术指标"""
@@ -532,12 +543,12 @@ def continuous_prediction_loop():
                         actual_price = list(current_data)[-1]['close']
                         predictor.verify_prediction(pred, actual_price, actual_price)
                         pred['verified_30m'] = True
-                        
-            asyncio.sleep(30)  # 每30秒更新一次
-            
+
+            time.sleep(30)  # 每30秒更新一次
+
         except Exception as e:
             print(f"Prediction loop error: {e}")
-            asyncio.sleep(5)
+            time.sleep(5)
 
 if __name__ == '__main__':
     # 获取历史数据
