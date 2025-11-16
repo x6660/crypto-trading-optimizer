@@ -38,6 +38,7 @@ class TradingDataCollector:
         """启动WebSocket连接获取实时数据"""
         def on_message_btc(ws, message):
             try:
+                print(f"BTC WebSocket received message", flush=True)
                 data = json.loads(message)
                 kline = data['k']
                 self.btc_data.append({
@@ -49,8 +50,11 @@ class TradingDataCollector:
                     'volume': float(kline['v'])
                 })
                 self.calculate_indicators('BTCUSDT')
+                print(f"BTC Price: ${float(kline['c']):.2f}", flush=True)
             except Exception as e:
-                print(f"BTC WebSocket message error: {e}")
+                print(f"BTC WebSocket message error: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
 
         def on_message_eth(ws, message):
             try:
@@ -65,24 +69,43 @@ class TradingDataCollector:
                     'volume': float(kline['v'])
                 })
                 self.calculate_indicators('ETHUSDT')
+                print(f"ETH Price: ${float(kline['c']):.2f}", flush=True)
             except Exception as e:
                 print(f"ETH WebSocket message error: {e}")
-            
+
+        def on_error(ws, error):
+            print(f"WebSocket error: {error}", flush=True)
+
+        def on_close(ws, close_status_code, close_msg):
+            print(f"WebSocket closed: {close_status_code} - {close_msg}", flush=True)
+
+        def on_open(ws):
+            print(f"WebSocket connection opened: {ws.url}", flush=True)
+
         # BTC WebSocket
         self.ws_btc = websocket.WebSocketApp(
             "wss://stream.binance.com:9443/ws/btcusdt@kline_1m",
-            on_message=on_message_btc
+            on_message=on_message_btc,
+            on_error=on_error,
+            on_close=on_close,
+            on_open=on_open
         )
-        
+
         # ETH WebSocket
         self.ws_eth = websocket.WebSocketApp(
             "wss://stream.binance.com:9443/ws/ethusdt@kline_1m",
-            on_message=on_message_eth
+            on_message=on_message_eth,
+            on_error=on_error,
+            on_close=on_close,
+            on_open=on_open
         )
-        
+
         # 启动WebSocket线程
+        print("Starting BTC WebSocket thread...", flush=True)
         threading.Thread(target=self.ws_btc.run_forever, daemon=True).start()
+        print("Starting ETH WebSocket thread...", flush=True)
         threading.Thread(target=self.ws_eth.run_forever, daemon=True).start()
+        print("WebSocket threads started", flush=True)
         
     def fetch_historical_data(self, symbol, interval='1m', limit=500):
         """获取历史K线数据"""
@@ -195,6 +218,25 @@ class TradingDataCollector:
         
         self.indicators_cache[symbol] = indicators
         return indicators
+
+    def get_latest_price(self, symbol):
+        """获取最新价格和时间戳供前端展示"""
+        data = self.btc_data if symbol == 'BTCUSDT' else self.eth_data
+        if not data:
+            return None
+        latest = data[-1]
+        price_time = latest.get('time')
+        if isinstance(price_time, pd.Timestamp):
+            price_time = price_time.to_pydatetime().isoformat()
+        elif isinstance(price_time, datetime):
+            price_time = price_time.isoformat()
+        else:
+            price_time = str(price_time)
+        return {
+            'symbol': symbol,
+            'price': float(latest.get('close', 0)),
+            'time': price_time
+        }
 
 class DeepLearningModel(nn.Module):
     """深度学习预测模型 - LSTM + Transformer混合架构"""
@@ -356,7 +398,7 @@ class TradingPredictor:
             
         # 准备特征
         features = self.prepare_features(indicators, price_data)
-        if features is None or len(features) < 50:
+        if features is None:
             return None
             
         # 补齐特征维度
@@ -485,6 +527,17 @@ def get_prediction(symbol):
     if prediction:
         return jsonify(prediction)
     return jsonify({'error': 'Insufficient data'}), 400
+
+@app.route('/api/prices')
+def get_latest_prices():
+    prices = {}
+    for symbol in ['BTCUSDT', 'ETHUSDT']:
+        latest = data_collector.get_latest_price(symbol)
+        if latest:
+            prices[symbol] = latest
+    if not prices:
+        return jsonify({'error': 'No market data'}), 503
+    return jsonify(prices)
 
 @app.route('/api/stats')
 def get_stats():

@@ -334,6 +334,29 @@
     <script>
         // WebSocket连接
         const socket = io();
+
+        function requestRealtimePredictions() {
+            socket.emit('request_prediction', {symbol: 'BTCUSDT'});
+            socket.emit('request_prediction', {symbol: 'ETHUSDT'});
+        }
+
+        function updateSpotPrice(symbol, price) {
+            const target = symbol === 'BTCUSDT' ? '#btc-price' : '#eth-price';
+            $(target).text(`$${Number(price).toFixed(2)}`);
+        }
+
+        function refreshSpotPrices() {
+            $.get('/api/prices', function(data) {
+                if (data.BTCUSDT) {
+                    updateSpotPrice('BTCUSDT', data.BTCUSDT.price);
+                }
+                if (data.ETHUSDT) {
+                    updateSpotPrice('ETHUSDT', data.ETHUSDT.price);
+                }
+            }).fail(function(err) {
+                console.warn('Failed to refresh spot prices', err);
+            });
+        }
         
         // 图表初始化
         const ctx = document.getElementById('priceChart').getContext('2d');
@@ -396,7 +419,7 @@
             const symbol = data.symbol === 'BTCUSDT' ? 'btc' : 'eth';
             
             // 更新价格
-            $(`#${symbol}-price`).text(`$${data.current_price.toFixed(2)}`);
+            updateSpotPrice(data.symbol, data.current_price);
             
             // 更新10分钟信号
             const signal10m = data.predictions['10m'];
@@ -523,6 +546,8 @@
         // WebSocket事件监听
         socket.on('connect', function() {
             console.log('Connected to server');
+            requestRealtimePredictions();
+            refreshSpotPrices();
         });
         
         socket.on('prediction_update', function(data) {
@@ -531,14 +556,16 @@
         
         // 定期请求预测
         setInterval(function() {
-            socket.emit('request_prediction', {symbol: 'BTCUSDT'});
-            socket.emit('request_prediction', {symbol: 'ETHUSDT'});
+            requestRealtimePredictions();
             updateStats();
+            refreshSpotPrices();
         }, 5000);
         
         // 初始化
         $(document).ready(function() {
             updateStats();
+            refreshSpotPrices();
+            requestRealtimePredictions();
         });
     </script>
 </body>
